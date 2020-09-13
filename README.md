@@ -4,7 +4,12 @@ This repo has a "Hello World" Python application that uses the `psycopg2` driver
 
 Prerequisites:
 
-- Install [psycopg2](https://www.psycopg.org/docs/).
+- Install [psycopg2](https://www.psycopg.org/docs/install.html). The quickest
+  way is:
+
+```
+pip install psycopg2-binary
+```
 
 To run the code:
 
