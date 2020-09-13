@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import psycopg2
-import psycopg2.errorcodes
+from psycopg2.errors import SerializationFailure
 import time
 import logging
 import random
@@ -55,21 +55,23 @@ def run_transaction(conn, op):
                 # If we reach this point, we were able to commit, so we break
                 # from the retry loop.
                 break
+
+            except SerializationFailure as e:
+                # This is a retry error, so we roll back the current
+                # transaction and sleep for a bit before retrying. The
+                # sleep time increases for each failed transaction.
+                logging.debug("got error: {}".format(e))
+                conn.rollback()
+                logging.debug("EXECUTE SERIALIZATION_FAILURE BRANCH")
+                sleep_ms = (2**retries) * 0.1 * (random.random() + 0.5)
+                logging.debug("Sleeping {} seconds".format(sleep_ms))
+                time.sleep(sleep_ms)
+                continue
+
             except psycopg2.Error as e:
-                logging.debug("e.pgcode: {}".format(e.pgcode))
-                if e.pgcode == '40001':
-                    # This is a retry error, so we roll back the current
-                    # transaction and sleep for a bit before retrying. The
-                    # sleep time increases for each failed transaction.
-                    conn.rollback()
-                    logging.debug("EXECUTE SERIALIZATION_FAILURE BRANCH")
-                    sleep_ms = (2**retries) * 0.1 * (random.random() + 0.5)
-                    logging.debug("Sleeping {} seconds".format(sleep_ms))
-                    time.sleep(sleep_ms)
-                    continue
-                else:
-                    logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
-                    raise e
+                logging.debug("got error: {}".format(e))
+                logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
+                raise e
 
 
 # This function is used to test the transaction retry logic.  It can be deleted
