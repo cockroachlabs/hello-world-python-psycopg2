@@ -22,6 +22,13 @@ def create_accounts(conn):
     conn.commit()
 
 
+def delete_accounts(conn):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM bank.accounts")
+        logging.debug("delete_accounts(): status message: %s", cur.statusmessage)
+    conn.commit()
+
+
 def print_balances(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT id, balance FROM accounts")
@@ -31,13 +38,6 @@ def print_balances(conn):
         print(f"Balances at {time.asctime()}:")
         for row in rows:
             print(row)
-
-
-def delete_accounts(conn):
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM bank.accounts")
-        logging.debug("delete_accounts(): status message: %s", cur.statusmessage)
-    conn.commit()
 
 
 def transfer_funds(conn, frm, to, amount):
