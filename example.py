@@ -14,18 +14,18 @@ from psycopg2.errors import SerializationFailure
 
 def create_accounts(conn):
     with conn.cursor() as cur:
-        cur.execute('CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)')
-        cur.execute('UPSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)')
-        logging.debug("create_accounts(): status message: {}"
-                      .format(cur.statusmessage))
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"
+        )
+        cur.execute("UPSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)")
+        logging.debug("create_accounts(): status message: {}".format(cur.statusmessage))
     conn.commit()
 
 
 def print_balances(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT id, balance FROM accounts")
-        logging.debug("print_balances(): status message: {}"
-                      .format(cur.statusmessage))
+        logging.debug("print_balances(): status message: {}".format(cur.statusmessage))
         rows = cur.fetchall()
         conn.commit()
         print("Balances at {}".format(time.asctime()))
@@ -36,8 +36,7 @@ def print_balances(conn):
 def delete_accounts(conn):
     with conn.cursor() as cur:
         cur.execute("DELETE FROM bank.accounts")
-        logging.debug("delete_accounts(): status message: {}"
-                      .format(cur.statusmessage))
+        logging.debug("delete_accounts(): status message: {}".format(cur.statusmessage))
     conn.commit()
 
 
@@ -48,17 +47,21 @@ def transfer_funds(conn, frm, to, amount):
         cur.execute("SELECT balance FROM accounts WHERE id = " + str(frm))
         from_balance = cur.fetchone()[0]
         if from_balance < amount:
-            raise RuntimeError("Insufficient funds in {}: have {}, need {}"
-                               .format(frm, from_balance, amount))
+            raise RuntimeError(
+                "Insufficient funds in {}: have {}, need {}".format(
+                    frm, from_balance, amount
+                )
+            )
 
         # Perform the transfer.
-        cur.execute("UPDATE accounts SET balance = balance - %s WHERE id = %s",
-                    (amount, frm))
-        cur.execute("UPDATE accounts SET balance = balance + %s WHERE id = %s",
-                    (amount, to))
+        cur.execute(
+            "UPDATE accounts SET balance = balance - %s WHERE id = %s", (amount, frm)
+        )
+        cur.execute(
+            "UPDATE accounts SET balance = balance + %s WHERE id = %s", (amount, to)
+        )
     conn.commit()
-    logging.debug("transfer_funds(): status message: {}"
-                  .format(cur.statusmessage))
+    logging.debug("transfer_funds(): status message: {}".format(cur.statusmessage))
 
 
 def run_transaction(conn, op, max_retries=3):
@@ -95,8 +98,9 @@ def run_transaction(conn, op, max_retries=3):
                 logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
                 raise e
 
-        raise ValueError("Transaction did not succeed after {} retries"
-                         .format(max_retries))
+        raise ValueError(
+            "Transaction did not succeed after {} retries".format(max_retries)
+        )
 
 
 def test_retry_loop(conn):
@@ -109,10 +113,9 @@ def test_retry_loop(conn):
         # The first statement in a transaction can be retried transparently on
         # the server, so we need to add a dummy statement so that our
         # force_retry() statement isn't the first one.
-        cur.execute('SELECT now()')
+        cur.execute("SELECT now()")
         cur.execute("SELECT crdb_internal.force_retry('1s'::INTERVAL)")
-    logging.debug("test_retry_loop(): status message: {}"
-                  .format(cur.statusmessage))
+    logging.debug("test_retry_loop(): status message: {}".format(cur.statusmessage))
 
 
 def main():
@@ -128,8 +131,7 @@ def main():
     toId = 2
 
     try:
-        run_transaction(conn,
-                        lambda conn: transfer_funds(conn, fromId, toId, amount))
+        run_transaction(conn, lambda conn: transfer_funds(conn, fromId, toId, amount))
 
         # The function below is used to test the transaction retry logic.  It
         # can be deleted from production code.
@@ -152,16 +154,16 @@ def main():
 def parse_cmdline():
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
-        '--dsn',
-        default='postgresql://maxroach@localhost:26257/bank?sslmode=disable',
-        help="database connection string [default: %(default)s]")
+        "--dsn",
+        default="postgresql://maxroach@localhost:26257/bank?sslmode=disable",
+        help="database connection string [default: %(default)s]",
+    )
 
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help="print debug info")
+    parser.add_argument("-v", "--verbose", action="store_true", help="print debug info")
 
     opt = parser.parse_args()
     return opt
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
