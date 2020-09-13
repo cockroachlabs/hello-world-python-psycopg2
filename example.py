@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
+"""
+Test psycopg with CockroachDB.
+"""
+
+import time
+import random
+import logging
+from argparse import ArgumentParser
 
 import psycopg2
 from psycopg2.errors import SerializationFailure
-import time
-import logging
-import random
 
 
 def create_accounts(conn):
@@ -36,57 +41,6 @@ def delete_accounts(conn):
     conn.commit()
 
 
-# Wrapper for a transaction.
-# This automatically re-calls "op" with the open transaction as an argument
-# as long as the database server asks for the transaction to be retried.
-def run_transaction(conn, op):
-    retries = 0
-    max_retries = 3
-    with conn:
-        while True:
-            retries += 1
-            if retries == max_retries:
-                raise ValueError("Transaction did not succeed after {} retries"
-                                 .format(max_retries))
-
-            try:
-                op(conn)
-
-                # If we reach this point, we were able to commit, so we break
-                # from the retry loop.
-                break
-
-            except SerializationFailure as e:
-                # This is a retry error, so we roll back the current
-                # transaction and sleep for a bit before retrying. The
-                # sleep time increases for each failed transaction.
-                logging.debug("got error: {}".format(e))
-                conn.rollback()
-                logging.debug("EXECUTE SERIALIZATION_FAILURE BRANCH")
-                sleep_ms = (2**retries) * 0.1 * (random.random() + 0.5)
-                logging.debug("Sleeping {} seconds".format(sleep_ms))
-                time.sleep(sleep_ms)
-                continue
-
-            except psycopg2.Error as e:
-                logging.debug("got error: {}".format(e))
-                logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
-                raise e
-
-
-# This function is used to test the transaction retry logic.  It can be deleted
-# from production code.
-def test_retry_loop(conn):
-    with conn.cursor() as cur:
-        # The first statement in a transaction can be retried transparently on
-        # the server, so we need to add a dummy statement so that our
-        # force_retry() statement isn't the first one.
-        cur.execute('SELECT now()')
-        cur.execute("SELECT crdb_internal.force_retry('1s'::INTERVAL)")
-    logging.debug("test_retry_loop(): status message: {}"
-                  .format(cur.statusmessage))
-
-
 def transfer_funds(conn, frm, to, amount):
     with conn.cursor() as cur:
 
@@ -107,19 +61,66 @@ def transfer_funds(conn, frm, to, amount):
                   .format(cur.statusmessage))
 
 
+def run_transaction(conn, op, max_retries=3):
+    """
+    Execute the operation *op(conn)* retrying serialization failure.
+
+    If the database returns an error asking to retry the transaction, retry it
+    *max_retries* times before giving up (and propagate it).
+    """
+    # leaving this block the transaction will commit or rollback
+    # (if leaving with an exception)
+    with conn:
+        for retry in range(1, max_retries + 1):
+            try:
+                op(conn)
+
+                # If we reach this point, we were able to commit, so we break
+                # from the retry loop.
+                return
+
+            except SerializationFailure as e:
+                # This is a retry error, so we roll back the current
+                # transaction and sleep for a bit before retrying. The
+                # sleep time increases for each failed transaction.
+                logging.debug("got error: {}".format(e))
+                conn.rollback()
+                logging.debug("EXECUTE SERIALIZATION_FAILURE BRANCH")
+                sleep_ms = (2 ** retry) * 0.1 * (random.random() + 0.5)
+                logging.debug("Sleeping {} seconds".format(sleep_ms))
+                time.sleep(sleep_ms)
+
+            except psycopg2.Error as e:
+                logging.debug("got error: {}".format(e))
+                logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
+                raise e
+
+        raise ValueError("Transaction did not succeed after {} retries"
+                         .format(max_retries))
+
+
+def test_retry_loop(conn):
+    """
+    Cause a seralization error in the connection.
+
+    This function can be used to test retry logic.
+    """
+    with conn.cursor() as cur:
+        # The first statement in a transaction can be retried transparently on
+        # the server, so we need to add a dummy statement so that our
+        # force_retry() statement isn't the first one.
+        cur.execute('SELECT now()')
+        cur.execute("SELECT crdb_internal.force_retry('1s'::INTERVAL)")
+    logging.debug("test_retry_loop(): status message: {}"
+                  .format(cur.statusmessage))
+
+
 def main():
+    opt = parse_cmdline()
+    logging.basicConfig(level=logging.DEBUG if opt.verbose else logging.INFO)
 
-    dsn = 'postgresql://maxroach@localhost:26257/bank?sslmode=disable'
-    conn = psycopg2.connect(dsn)
-
-    # Uncomment the below to turn on logging to the console.  This was useful
-    # when testing transaction retry handling.  It is not necessary for
-    # production code.
-    # log_level = getattr(logging, 'DEBUG', None)
-    # logging.basicConfig(level=log_level)
-
+    conn = psycopg2.connect(opt.dsn)
     create_accounts(conn)
-
     print_balances(conn)
 
     amount = 100
@@ -146,6 +147,20 @@ def main():
 
     # Close communication with the database.
     conn.close()
+
+
+def parse_cmdline():
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument(
+        '--dsn',
+        default='postgresql://maxroach@localhost:26257/bank?sslmode=disable',
+        help="database connection string [default: %(default)s]")
+
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help="print debug info")
+
+    opt = parser.parse_args()
+    return opt
 
 
 if __name__ == '__main__':

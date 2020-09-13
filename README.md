@@ -2,7 +2,7 @@
 
 This repo has a "Hello World" Python application that uses the `psycopg2` driver to talk to [CockroachDB](https://www.cockroachlabs.com/docs/stable/).
 
-Prerequisites: 
+Prerequisites:
 
 - Install [psycopg2](https://www.psycopg.org/docs/).
 
