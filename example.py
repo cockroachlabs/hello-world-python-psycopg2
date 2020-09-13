@@ -132,7 +132,7 @@ def main():
 
         # The function below is used to test the transaction retry logic.  It
         # can be deleted from production code.
-        # run_transaction(conn, lambda conn: test_retry_loop(conn))
+        # run_transaction(conn, test_retry_loop)
     except ValueError as ve:
         # Below, we print the error and continue on so this example is easy to
         # run (and run, and run...).  In real code you should handle this error
