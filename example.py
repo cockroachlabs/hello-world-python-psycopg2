@@ -152,7 +152,10 @@ def parse_cmdline():
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dsn",
-        default="postgresql://maxroach@localhost:26257/bank?sslmode=disable",
+        # For cockroach demo:
+        default="postgresql://<username>:<password>@<hostname>:<port>/bank?sslmode=require",
+        # For CockroachCloud:
+        # default="postgresql://<username>:<password>@<hostname>:<port>/bank?sslmode=verify-full&sslrootcert=<certs_dir>/<ca.crt>",
         help="database connection string [default: %(default)s]",
     )
 
