@@ -167,7 +167,7 @@ For CockroachCloud Free, use
 
 If you are using the connection string copied from the Console, your username,
 password, and cluster name will be pre-populated. Replace
-<your_certs_directory> with the path to the cc-ca.cert downloaded from the
+<your_certs_directory> with the path to the 'cc-ca.crt' downloaded from the
 Console.
 
 """
