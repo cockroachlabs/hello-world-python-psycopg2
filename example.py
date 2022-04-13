@@ -6,7 +6,7 @@ Test psycopg with CockroachDB.
 import time
 import random
 import logging
-from argparse import ArgumentParser, RawTextHelpFormatter
+import os
 
 import psycopg2
 from psycopg2.errors import SerializationFailure
@@ -18,21 +18,21 @@ def create_accounts(conn):
             "CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"
         )
         cur.execute("UPSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)")
-        logging.debug("create_accounts(): status message: %s", cur.statusmessage)
+        logging.debug(f"create_accounts(): status message: {cur.statusmessage}")
     conn.commit()
 
 
 def delete_accounts(conn):
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM bank.accounts")
-        logging.debug("delete_accounts(): status message: %s", cur.statusmessage)
+        cur.execute("DELETE FROM accounts")
+        logging.debug(f"delete_accounts(): status message: {cur.statusmessage}")
     conn.commit()
 
 
 def print_balances(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT id, balance FROM accounts")
-        logging.debug("print_balances(): status message: %s", cur.statusmessage)
+        logging.debug(f"print_balances(): status message: {cur.statusmessage}")
         rows = cur.fetchall()
         conn.commit()
         print(f"Balances at {time.asctime()}:")
@@ -60,7 +60,7 @@ def transfer_funds(conn, frm, to, amount):
         )
 
     conn.commit()
-    logging.debug("transfer_funds(): status message: %s", cur.statusmessage)
+    logging.debug(f"transfer_funds(): status message: {cur.statusmessage}")
 
 
 def run_transaction(conn, op, max_retries=3):
@@ -76,7 +76,6 @@ def run_transaction(conn, op, max_retries=3):
         for retry in range(1, max_retries + 1):
             try:
                 op(conn)
-
                 # If we reach this point, we were able to commit, so we break
                 # from the retry loop.
                 return
@@ -85,41 +84,25 @@ def run_transaction(conn, op, max_retries=3):
                 # This is a retry error, so we roll back the current
                 # transaction and sleep for a bit before retrying. The
                 # sleep time increases for each failed transaction.
-                logging.debug("got error: %s", e)
+                logging.debug(f"got error: {e}")
                 conn.rollback()
                 logging.debug("EXECUTE SERIALIZATION_FAILURE BRANCH")
                 sleep_ms = (2 ** retry) * 0.1 * (random.random() + 0.5)
-                logging.debug("Sleeping %s seconds", sleep_ms)
+                logging.debug(f"Sleeping {sleep_ms} seconds", )
                 time.sleep(sleep_ms)
 
             except psycopg2.Error as e:
-                logging.debug("got error: %s", e)
+                logging.debug(f"got error: {e}")
                 logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
                 raise e
 
         raise ValueError(f"Transaction did not succeed after {max_retries} retries")
 
 
-def test_retry_loop(conn):
-    """
-    Cause a seralization error in the connection.
-
-    This function can be used to test retry logic.
-    """
-    with conn.cursor() as cur:
-        # The first statement in a transaction can be retried transparently on
-        # the server, so we need to add a dummy statement so that our
-        # force_retry() statement isn't the first one.
-        cur.execute("SELECT now()")
-        cur.execute("SELECT crdb_internal.force_retry('1s'::INTERVAL)")
-    logging.debug("test_retry_loop(): status message: %s", cur.statusmessage)
-
-
 def main():
-    opt = parse_cmdline()
-    logging.basicConfig(level=logging.DEBUG if opt.verbose else logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
-    conn = psycopg2.connect(opt.dsn)
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
     create_accounts(conn)
     print_balances(conn)
 
@@ -128,16 +111,13 @@ def main():
     toId = 2
 
     try:
+        # Run transfer funds statement in run_transaction wrapper
         run_transaction(conn, lambda conn: transfer_funds(conn, fromId, toId, amount))
-
-        # The function below is used to test the transaction retry logic.  It
-        # can be deleted from production code.
-        # run_transaction(conn, test_retry_loop)
     except ValueError as ve:
         # Below, we print the error and continue on so this example is easy to
         # run (and run, and run...).  In real code you should handle this error
         # and any others thrown by the database interaction.
-        logging.debug("run_transaction(conn, op) failed: %s", ve)
+        logging.debug(f"run_transaction(conn, op) failed: {ve}")
         pass
 
     print_balances(conn)
@@ -146,38 +126,6 @@ def main():
 
     # Close communication with the database.
     conn.close()
-
-
-def parse_cmdline():
-    parser = ArgumentParser(description=__doc__,
-                            formatter_class=RawTextHelpFormatter)
-    parser.add_argument(
-        "dsn",
-        help="""\
-database connection string
-
-For cockroach demo, use
-'postgresql://<username>:<password>@<hostname>:<port>/bank?sslmode=require',
-with the username and password created in the demo cluster, and the hostname
-and port listed in the (sql/tcp) connection parameters of the demo cluster
-welcome message.
-
-For CockroachCloud Free, use
-'postgres://<username>:<password>@free-tier.gcp-us-central1.cockroachlabs.cloud:26257/<cluster-name>.bank?sslmode=verify-full&sslrootcert=<your_certs_directory>/cc-ca.crt'.
-
-If you are using the connection string copied from the Console, your username,
-password, and cluster name will be pre-populated. Replace
-<your_certs_directory> with the path to the 'cc-ca.crt' downloaded from the
-Console.
-
-"""
-    )
-
-    parser.add_argument("-v", "--verbose",
-                        action="store_true", help="print debug info")
-
-    opt = parser.parse_args()
-    return opt
 
 
 if __name__ == "__main__":
