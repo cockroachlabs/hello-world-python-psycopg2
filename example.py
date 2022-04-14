@@ -18,22 +18,26 @@ def create_accounts(conn):
         cur.execute(
             "CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"
         )
-        cur.execute("UPSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)")
-        logging.debug("create_accounts(): status message: %s", cur.statusmessage)
+        cur.execute(
+            "UPSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)")
+        logging.debug("create_accounts(): status message: %s",
+                      cur.statusmessage)
     conn.commit()
 
 
 def delete_accounts(conn):
     with conn.cursor() as cur:
         cur.execute("DELETE FROM bank.accounts")
-        logging.debug("delete_accounts(): status message: %s", cur.statusmessage)
+        logging.debug("delete_accounts(): status message: %s",
+                      cur.statusmessage)
     conn.commit()
 
 
 def print_balances(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT id, balance FROM accounts")
-        logging.debug("print_balances(): status message: %s", cur.statusmessage)
+        logging.debug("print_balances(): status message: %s",
+                      cur.statusmessage)
         rows = cur.fetchall()
         conn.commit()
         print(f"Balances at {time.asctime()}:")
@@ -49,15 +53,17 @@ def transfer_funds(conn, frm, to, amount):
         from_balance = cur.fetchone()[0]
         if from_balance < amount:
             raise RuntimeError(
-                f"Insufficient funds in {frm}: have {from_balance}, need {amount}"
+                f"insufficient funds in {frm}: have {from_balance}, need {amount}"
             )
 
         # Perform the transfer.
         cur.execute(
-            "UPDATE accounts SET balance = balance - %s WHERE id = %s", (amount, frm)
+            "UPDATE accounts SET balance = balance - %s WHERE id = %s", (
+                amount, frm)
         )
         cur.execute(
-            "UPDATE accounts SET balance = balance + %s WHERE id = %s", (amount, to)
+            "UPDATE accounts SET balance = balance + %s WHERE id = %s", (
+                amount, to)
         )
 
     conn.commit()
@@ -89,7 +95,7 @@ def run_transaction(conn, op, max_retries=3):
                 logging.debug("got error: %s", e)
                 conn.rollback()
                 logging.debug("EXECUTE SERIALIZATION_FAILURE BRANCH")
-                sleep_ms = (2 ** retry) * 0.1 * (random.random() + 0.5)
+                sleep_ms = (2**retry) * 0.1 * (random.random() + 0.5)
                 logging.debug("Sleeping %s seconds", sleep_ms)
                 time.sleep(sleep_ms)
 
@@ -98,21 +104,24 @@ def run_transaction(conn, op, max_retries=3):
                 logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
                 raise e
 
-        raise ValueError(f"Transaction did not succeed after {max_retries} retries")
+        raise ValueError(
+            f"transaction did not succeed after {max_retries} retries")
 
 
 def main():
     opt = parse_cmdline()
     logging.basicConfig(level=logging.DEBUG if opt.verbose else logging.INFO)
     try:
-        # Attempt to connect to cluster with connection string saved to the
+        # Attempt to connect to cluster with connection string provided to
+        # script. By default, this script uses the value saved to the
         # DATABASE_URL environment variable.
         # For information on supported connection string formats, see
         # https://www.cockroachlabs.com/docs/stable/connect-to-the-database.html.
-        db_url = os.environ['DATABASE_URL']
+        db_url = opt.dsn
         conn = psycopg2.connect(db_url)
-    except KeyError:
-        logging.fatal("DATABASE_URL environment variable not defined.")
+    except Exception as e:
+        logging.fatal("database connection failed")
+        logging.fatal(e)
         return
     create_accounts(conn)
     print_balances(conn)
@@ -122,7 +131,8 @@ def main():
     toId = 2
 
     try:
-        run_transaction(conn, lambda conn: transfer_funds(conn, fromId, toId, amount))
+        run_transaction(conn, lambda conn: transfer_funds(
+            conn, fromId, toId, amount))
 
     except ValueError as ve:
         # Below, we print the error and continue on so this example is easy to
@@ -146,7 +156,19 @@ def parse_cmdline():
     parser.add_argument("-v", "--verbose",
                         action="store_true", help="print debug info")
 
+    parser.add_argument(
+        "dsn",
+        default=os.environ.get("DATABASE_URL"),
+        nargs="?",
+        help="""\
+database connection string\
+ (default: value of the DATABASE_URL environment variable)
+            """,
+    )
+
     opt = parser.parse_args()
+    if opt.dsn is None:
+        parser.error("database connection string not set")
     return opt
 
 
