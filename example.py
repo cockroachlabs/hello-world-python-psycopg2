@@ -6,6 +6,7 @@ Test psycopg with CockroachDB.
 import time
 import random
 import logging
+import os
 from argparse import ArgumentParser, RawTextHelpFormatter
 
 import psycopg2
@@ -17,22 +18,26 @@ def create_accounts(conn):
         cur.execute(
             "CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"
         )
-        cur.execute("UPSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)")
-        logging.debug("create_accounts(): status message: %s", cur.statusmessage)
+        cur.execute(
+            "UPSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)")
+        logging.debug("create_accounts(): status message: %s",
+                      cur.statusmessage)
     conn.commit()
 
 
 def delete_accounts(conn):
     with conn.cursor() as cur:
         cur.execute("DELETE FROM bank.accounts")
-        logging.debug("delete_accounts(): status message: %s", cur.statusmessage)
+        logging.debug("delete_accounts(): status message: %s",
+                      cur.statusmessage)
     conn.commit()
 
 
 def print_balances(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT id, balance FROM accounts")
-        logging.debug("print_balances(): status message: %s", cur.statusmessage)
+        logging.debug("print_balances(): status message: %s",
+                      cur.statusmessage)
         rows = cur.fetchall()
         conn.commit()
         print(f"Balances at {time.asctime()}:")
@@ -48,15 +53,17 @@ def transfer_funds(conn, frm, to, amount):
         from_balance = cur.fetchone()[0]
         if from_balance < amount:
             raise RuntimeError(
-                f"Insufficient funds in {frm}: have {from_balance}, need {amount}"
+                f"insufficient funds in {frm}: have {from_balance}, need {amount}"
             )
 
         # Perform the transfer.
         cur.execute(
-            "UPDATE accounts SET balance = balance - %s WHERE id = %s", (amount, frm)
+            "UPDATE accounts SET balance = balance - %s WHERE id = %s", (
+                amount, frm)
         )
         cur.execute(
-            "UPDATE accounts SET balance = balance + %s WHERE id = %s", (amount, to)
+            "UPDATE accounts SET balance = balance + %s WHERE id = %s", (
+                amount, to)
         )
 
     conn.commit()
@@ -88,7 +95,7 @@ def run_transaction(conn, op, max_retries=3):
                 logging.debug("got error: %s", e)
                 conn.rollback()
                 logging.debug("EXECUTE SERIALIZATION_FAILURE BRANCH")
-                sleep_ms = (2 ** retry) * 0.1 * (random.random() + 0.5)
+                sleep_ms = (2**retry) * 0.1 * (random.random() + 0.5)
                 logging.debug("Sleeping %s seconds", sleep_ms)
                 time.sleep(sleep_ms)
 
@@ -97,29 +104,25 @@ def run_transaction(conn, op, max_retries=3):
                 logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
                 raise e
 
-        raise ValueError(f"Transaction did not succeed after {max_retries} retries")
-
-
-def test_retry_loop(conn):
-    """
-    Cause a seralization error in the connection.
-
-    This function can be used to test retry logic.
-    """
-    with conn.cursor() as cur:
-        # The first statement in a transaction can be retried transparently on
-        # the server, so we need to add a dummy statement so that our
-        # force_retry() statement isn't the first one.
-        cur.execute("SELECT now()")
-        cur.execute("SELECT crdb_internal.force_retry('1s'::INTERVAL)")
-    logging.debug("test_retry_loop(): status message: %s", cur.statusmessage)
+        raise ValueError(
+            f"transaction did not succeed after {max_retries} retries")
 
 
 def main():
     opt = parse_cmdline()
     logging.basicConfig(level=logging.DEBUG if opt.verbose else logging.INFO)
-
-    conn = psycopg2.connect(opt.dsn)
+    try:
+        # Attempt to connect to cluster with connection string provided to
+        # script. By default, this script uses the value saved to the
+        # DATABASE_URL environment variable.
+        # For information on supported connection string formats, see
+        # https://www.cockroachlabs.com/docs/stable/connect-to-the-database.html.
+        db_url = opt.dsn
+        conn = psycopg2.connect(db_url)
+    except Exception as e:
+        logging.fatal("database connection failed")
+        logging.fatal(e)
+        return
     create_accounts(conn)
     print_balances(conn)
 
@@ -128,11 +131,9 @@ def main():
     toId = 2
 
     try:
-        run_transaction(conn, lambda conn: transfer_funds(conn, fromId, toId, amount))
+        run_transaction(conn, lambda conn: transfer_funds(
+            conn, fromId, toId, amount))
 
-        # The function below is used to test the transaction retry logic.  It
-        # can be deleted from production code.
-        # run_transaction(conn, test_retry_loop)
     except ValueError as ve:
         # Below, we print the error and continue on so this example is easy to
         # run (and run, and run...).  In real code you should handle this error
@@ -151,32 +152,23 @@ def main():
 def parse_cmdline():
     parser = ArgumentParser(description=__doc__,
                             formatter_class=RawTextHelpFormatter)
-    parser.add_argument(
-        "dsn",
-        help="""\
-database connection string
-
-For cockroach demo, use
-'postgresql://<username>:<password>@<hostname>:<port>/bank?sslmode=require',
-with the username and password created in the demo cluster, and the hostname
-and port listed in the (sql/tcp) connection parameters of the demo cluster
-welcome message.
-
-For CockroachCloud Free, use
-'postgres://<username>:<password>@free-tier.gcp-us-central1.cockroachlabs.cloud:26257/<cluster-name>.bank?sslmode=verify-full&sslrootcert=<your_certs_directory>/cc-ca.crt'.
-
-If you are using the connection string copied from the Console, your username,
-password, and cluster name will be pre-populated. Replace
-<your_certs_directory> with the path to the 'cc-ca.crt' downloaded from the
-Console.
-
-"""
-    )
 
     parser.add_argument("-v", "--verbose",
                         action="store_true", help="print debug info")
 
+    parser.add_argument(
+        "dsn",
+        default=os.environ.get("DATABASE_URL"),
+        nargs="?",
+        help="""\
+database connection string\
+ (default: value of the DATABASE_URL environment variable)
+            """,
+    )
+
     opt = parser.parse_args()
+    if opt.dsn is None:
+        parser.error("database connection string not set")
     return opt
 
 
