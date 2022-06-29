@@ -118,7 +118,7 @@ def main():
         # For information on supported connection string formats, see
         # https://www.cockroachlabs.com/docs/stable/connect-to-the-database.html.
         db_url = opt.dsn
-        conn = psycopg2.connect(db_url)
+        conn = psycopg2.connect(db_url, application_name="$ docs_simplecrud_psycopg2")
     except Exception as e:
         logging.fatal("database connection failed")
         logging.fatal(e)
