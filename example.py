@@ -27,7 +27,7 @@ def create_accounts(conn):
 
 def delete_accounts(conn):
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM bank.accounts")
+        cur.execute("DELETE FROM accounts")
         logging.debug("delete_accounts(): status message: %s",
                       cur.statusmessage)
     conn.commit()
