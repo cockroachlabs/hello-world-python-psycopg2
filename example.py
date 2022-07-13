@@ -3,30 +3,33 @@
 Test psycopg with CockroachDB.
 """
 
-import time
-import random
 import logging
 import os
+import random
+import time
+import uuid
 from argparse import ArgumentParser, RawTextHelpFormatter
 
 import psycopg2
 from psycopg2.errors import SerializationFailure
+import psycopg2.extras
 
 
 def create_accounts(conn):
-    with conn.cursor() as cur:
+    psycopg2.extras.register_uuid()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"
+            "CREATE TABLE IF NOT EXISTS accounts (id UUID PRIMARY KEY, balance INT)"
         )
         cur.execute(
-            "UPSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)")
+            "UPSERT INTO accounts (id, balance) VALUES (%s, 1000), (%s, 250)", (uuid.uuid4(), uuid.uuid4()))
         logging.debug("create_accounts(): status message: %s",
                       cur.statusmessage)
     conn.commit()
 
 
 def delete_accounts(conn):
-    with conn.cursor() as cur:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("DELETE FROM accounts")
         logging.debug("delete_accounts(): status message: %s",
                       cur.statusmessage)
@@ -34,15 +37,18 @@ def delete_accounts(conn):
 
 
 def print_balances(conn):
-    with conn.cursor() as cur:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT id, balance FROM accounts")
         logging.debug("print_balances(): status message: %s",
                       cur.statusmessage)
         rows = cur.fetchall()
         conn.commit()
+        ids = []
         print(f"Balances at {time.asctime()}:")
         for row in rows:
-            print(row)
+            print("account id: {0}  balance: ${1:2d}".format(row['id'], row['balance']))
+            ids.append(row['id'])
+        return ids
 
 
 def transfer_funds(conn, frm, to, amount):
@@ -124,11 +130,11 @@ def main():
         logging.fatal(e)
         return
     create_accounts(conn)
-    print_balances(conn)
+    ids = print_balances(conn)
 
     amount = 100
-    fromId = 1
-    toId = 2
+    toId = ids.pop()
+    fromId = ids.pop()
 
     try:
         run_transaction(conn, lambda conn: transfer_funds(
