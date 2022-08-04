@@ -10,17 +10,16 @@ import time
 import uuid
 from argparse import ArgumentParser, RawTextHelpFormatter
 
-import psycopg2
-from psycopg2.errors import SerializationFailure
-import psycopg2.extras
+import psycopg
+from psycopg.errors import SerializationFailure
+from psycopg.rows import namedtuple_row
 
 
 def create_accounts(conn):
-    psycopg2.extras.register_uuid()
     ids = []
     id1 = uuid.uuid4()
     id2 = uuid.uuid4()
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor() as cur:
         cur.execute(
             "CREATE TABLE IF NOT EXISTS accounts (id UUID PRIMARY KEY, balance INT)"
         )
@@ -35,7 +34,7 @@ def create_accounts(conn):
 
 
 def delete_accounts(conn):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor() as cur:
         cur.execute("DELETE FROM accounts")
         logging.debug("delete_accounts(): status message: %s",
                       cur.statusmessage)
@@ -43,7 +42,7 @@ def delete_accounts(conn):
 
 
 def print_balances(conn):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor() as cur:
         cur.execute("SELECT id, balance FROM accounts")
         logging.debug("print_balances(): status message: %s",
                       cur.statusmessage)
@@ -51,7 +50,7 @@ def print_balances(conn):
         conn.commit()
         print(f"Balances at {time.asctime()}:")
         for row in rows:
-            print("account id: {0}  balance: ${1:2d}".format(row['id'], row['balance']))
+            print("account id: {0}  balance: ${1:2d}".format(row.id, row.balance))
 
 
 def transfer_funds(conn, frm, to, amount):
@@ -108,7 +107,7 @@ def run_transaction(conn, op, max_retries=3):
                 logging.debug("Sleeping %s seconds", sleep_ms)
                 time.sleep(sleep_ms)
 
-            except psycopg2.Error as e:
+            except psycopg.Error as e:
                 logging.debug("got error: %s", e)
                 logging.debug("EXECUTE NON-SERIALIZATION_FAILURE BRANCH")
                 raise e
@@ -127,35 +126,34 @@ def main():
         # For information on supported connection string formats, see
         # https://www.cockroachlabs.com/docs/stable/connect-to-the-database.html.
         db_url = opt.dsn
-        conn = psycopg2.connect(db_url, application_name="$ docs_simplecrud_psycopg2")
+        conn = psycopg.connect(db_url, 
+                               application_name="$ docs_simplecrud_psycopg3", 
+                               row_factory=namedtuple_row)
+        ids = create_accounts(conn)
+        print_balances(conn)
+            
+        amount = 100
+        toId = ids.pop()
+        fromId = ids.pop()
+
+        try:
+            run_transaction(conn, lambda conn: transfer_funds(conn, fromId, toId, amount))
+        except ValueError as ve:
+            # Below, we print the error and continue on so this example is easy to
+            # run (and run, and run...).  In real code you should handle this error
+            # and any others thrown by the database interaction.
+            logging.debug("run_transaction(conn, op) failed: %s", ve)
+            pass
+
+        print_balances(conn)
+
+        delete_accounts(conn)
+        # Close communication with the database.
+        conn.close()
     except Exception as e:
         logging.fatal("database connection failed")
         logging.fatal(e)
         return
-    ids = create_accounts(conn)
-    print_balances(conn)
-
-    amount = 100
-    toId = ids.pop()
-    fromId = ids.pop()
-
-    try:
-        run_transaction(conn, lambda conn: transfer_funds(
-            conn, fromId, toId, amount))
-
-    except ValueError as ve:
-        # Below, we print the error and continue on so this example is easy to
-        # run (and run, and run...).  In real code you should handle this error
-        # and any others thrown by the database interaction.
-        logging.debug("run_transaction(conn, op) failed: %s", ve)
-        pass
-
-    print_balances(conn)
-
-    delete_accounts(conn)
-
-    # Close communication with the database.
-    conn.close()
 
 
 def parse_cmdline():
