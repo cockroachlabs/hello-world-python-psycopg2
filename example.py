@@ -17,15 +17,21 @@ import psycopg2.extras
 
 def create_accounts(conn):
     psycopg2.extras.register_uuid()
+    ids = []
+    id1 = uuid.uuid4()
+    id2 = uuid.uuid4()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "CREATE TABLE IF NOT EXISTS accounts (id UUID PRIMARY KEY, balance INT)"
         )
         cur.execute(
-            "UPSERT INTO accounts (id, balance) VALUES (%s, 1000), (%s, 250)", (uuid.uuid4(), uuid.uuid4()))
+            "UPSERT INTO accounts (id, balance) VALUES (%s, 1000), (%s, 250)", (id1, id2))
         logging.debug("create_accounts(): status message: %s",
                       cur.statusmessage)
     conn.commit()
+    ids.append(id1)
+    ids.append(id2)
+    return ids
 
 
 def delete_accounts(conn):
@@ -43,12 +49,9 @@ def print_balances(conn):
                       cur.statusmessage)
         rows = cur.fetchall()
         conn.commit()
-        ids = []
         print(f"Balances at {time.asctime()}:")
         for row in rows:
             print("account id: {0}  balance: ${1:2d}".format(row['id'], row['balance']))
-            ids.append(row['id'])
-        return ids
 
 
 def transfer_funds(conn, frm, to, amount):
@@ -129,8 +132,8 @@ def main():
         logging.fatal("database connection failed")
         logging.fatal(e)
         return
-    create_accounts(conn)
-    ids = print_balances(conn)
+    ids = create_accounts(conn)
+    print_balances(conn)
 
     amount = 100
     toId = ids.pop()
