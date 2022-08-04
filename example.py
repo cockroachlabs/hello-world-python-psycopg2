@@ -20,7 +20,7 @@ def create_accounts(conn):
     ids = []
     id1 = uuid.uuid4()
     id2 = uuid.uuid4()
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor() as cur:
         cur.execute(
             "CREATE TABLE IF NOT EXISTS accounts (id UUID PRIMARY KEY, balance INT)"
         )
@@ -35,7 +35,7 @@ def create_accounts(conn):
 
 
 def delete_accounts(conn):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor() as cur:
         cur.execute("DELETE FROM accounts")
         logging.debug("delete_accounts(): status message: %s",
                       cur.statusmessage)
@@ -43,7 +43,7 @@ def delete_accounts(conn):
 
 
 def print_balances(conn):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor() as cur:
         cur.execute("SELECT id, balance FROM accounts")
         logging.debug("print_balances(): status message: %s",
                       cur.statusmessage)
@@ -59,7 +59,7 @@ def transfer_funds(conn, frm, to, amount):
 
         # Check the current balance.
         cur.execute("SELECT balance FROM accounts WHERE id = %s", (frm,))
-        from_balance = cur.fetchone()[0]
+        from_balance = cur.fetchone()['balance']
         if from_balance < amount:
             raise RuntimeError(
                 f"insufficient funds in {frm}: have {from_balance}, need {amount}"
@@ -127,7 +127,9 @@ def main():
         # For information on supported connection string formats, see
         # https://www.cockroachlabs.com/docs/stable/connect-to-the-database.html.
         db_url = opt.dsn
-        conn = psycopg2.connect(db_url, application_name="$ docs_simplecrud_psycopg2")
+        conn = psycopg2.connect(db_url, 
+                                application_name="$ docs_simplecrud_psycopg2", 
+                                cursor_factory=psycopg2.extras.RealDictCursor)
     except Exception as e:
         logging.fatal("database connection failed")
         logging.fatal(e)
